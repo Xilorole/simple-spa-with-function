@@ -32,6 +32,15 @@ export default function App() {
         body: JSON.stringify({ message: prompt }),
       });
 
+      const contentType = res.headers.get("content-type") || "";
+
+      // 認証リダイレクトで HTML が返ってきた場合
+      if (!contentType.includes("application/json")) {
+        throw new Error(
+          "認証エラー: ログインが必要です。ページをリロードしてください。"
+        );
+      }
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || `Error: ${res.status}`);
