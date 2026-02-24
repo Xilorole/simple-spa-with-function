@@ -1,0 +1,9 @@
+[project]
+name = "simple-spa-api"
+version = "0.1.0"
+description = "Azure Functions API for Simple SPA Chat"
+requires-python = ">=3.11"
+dependencies = ["azure-functions>=1.21.0", "openai>=1.60.0"]
+
+[tool.uv]
+dev-dependencies = ["pytest>=8.0.0"]
