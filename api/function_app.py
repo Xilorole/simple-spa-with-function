@@ -14,6 +14,7 @@ def _get_user_info(req: func.HttpRequest) -> dict | None:
     if not header:
         return None
     import base64
+
     try:
         decoded = base64.b64decode(header)
         return json.loads(decoded)
@@ -79,8 +80,7 @@ def chat(req: func.HttpRequest) -> func.HttpResponse:
         response = client.chat.completions.create(
             model=deployment,
             messages=messages,
-            temperature=0.7,
-            max_tokens=1024,
+            max_completion_tokens=1024,
         )
 
         reply = response.choices[0].message.content
