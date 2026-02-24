@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+uv.lock
+pyproject.toml
+local.settings.json
+.git/
+.github/
+tests/

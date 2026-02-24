@@ -2,15 +2,34 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageBubble, type Message } from "./MessageBubble";
 
 async function sendChatRequest(messages: Message[]): Promise<string> {
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+  } catch (e) {
+    throw new Error(
+      `ネットワークエラー: APIに接続できません (${e instanceof Error ? e.message : "unknown"})`
+    );
+  }
+
+  if (res.status === 401 || res.status === 302) {
+    window.location.href = "/.auth/login/aad";
+    throw new Error("認証が必要です。ログインページにリダイレクトします...");
+  }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "API request failed");
+    const text = await res.text();
+    let errorMsg = `API error (${res.status})`;
+    try {
+      const err = JSON.parse(text);
+      errorMsg = err.error || errorMsg;
+    } catch {
+      errorMsg = text || errorMsg;
+    }
+    throw new Error(errorMsg);
   }
 
   const data = await res.json();
@@ -45,10 +64,15 @@ export function ChatWindow() {
     try {
       const reply = await sendChatRequest(newMessages);
       setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-    } catch {
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "エラーが発生しました。";
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "エラーが発生しました。もう一度お試しください。" },
+        {
+          role: "assistant",
+          content: `⚠️ ${errorMessage}`,
+        },
       ]);
     } finally {
       setIsLoading(false);
