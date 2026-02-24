@@ -1,7 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageBubble, type Message } from "./MessageBubble";
 
-async function sendChatRequest(messages: Message[]): Promise<string> {
+/**
+ * Stream chat response from the API via SSE (Server-Sent Events).
+ * Calls onChunk for each token received, enabling progressive display.
+ */
+async function streamChatRequest(
+  messages: Message[],
+  onChunk: (content: string) => void
+): Promise<void> {
   let res: Response;
   try {
     res = await fetch("/api/chat", {
@@ -32,8 +39,34 @@ async function sendChatRequest(messages: Message[]): Promise<string> {
     throw new Error(errorMsg);
   }
 
-  const data = await res.json();
-  return data.reply;
+  // Read SSE stream via ReadableStream
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("ReadableStream not supported");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") return;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.content) onChunk(parsed.content);
+        } catch {
+          // skip malformed SSE line
+        }
+      }
+    }
+  }
 }
 
 export function ChatWindow() {
@@ -61,19 +94,38 @@ export function ChatWindow() {
     setInput("");
     setIsLoading(true);
 
+    // Add empty assistant message, then append chunks progressively
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
     try {
-      const reply = await sendChatRequest(newMessages);
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+      await streamChatRequest(newMessages, (chunk) => {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          updated[updated.length - 1] = {
+            ...last,
+            content: last.content + chunk,
+          };
+          return updated;
+        });
+      });
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "エラーが発生しました。";
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `⚠️ ${errorMessage}`,
-        },
-      ]);
+      // Replace the empty/partial assistant message with error
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (last.role === "assistant" && last.content === "") {
+          updated[updated.length - 1] = {
+            role: "assistant",
+            content: `⚠️ ${errorMessage}`,
+          };
+        } else {
+          updated.push({ role: "assistant", content: `⚠️ ${errorMessage}` });
+        }
+        return updated;
+      });
     } finally {
       setIsLoading(false);
     }
@@ -96,13 +148,14 @@ export function ChatWindow() {
         {messages.map((msg, i) => (
           <MessageBubble key={i} message={msg} />
         ))}
-        {isLoading && (
-          <div className="flex justify-start mb-3">
-            <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-2 text-sm text-gray-400 shadow-sm">
-              考え中...
+        {isLoading &&
+          messages[messages.length - 1]?.content === "" && (
+            <div className="flex justify-start mb-3">
+              <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-2 text-sm text-gray-400 shadow-sm animate-pulse">
+                考え中...
+              </div>
             </div>
-          </div>
-        )}
+          )}
         <div ref={messagesEndRef} />
       </div>
 

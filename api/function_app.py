@@ -77,18 +77,29 @@ def chat(req: func.HttpRequest) -> func.HttpResponse:
             api_version=api_version,
         )
 
-        response = client.chat.completions.create(
+        stream = client.chat.completions.create(
             model=deployment,
             messages=messages,
             max_completion_tokens=1024,
+            stream=True,
         )
 
-        reply = response.choices[0].message.content
+        # Build SSE-formatted response from streaming chunks
+        sse_lines: list[str] = []
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                sse_lines.append(f"data: {json.dumps({'content': content})}\n\n")
+        sse_lines.append("data: [DONE]\n\n")
 
         return func.HttpResponse(
-            json.dumps({"reply": reply}),
+            body="".join(sse_lines),
             status_code=200,
-            mimetype="application/json",
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     except Exception as e:
