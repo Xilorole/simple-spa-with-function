@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageBubble, type Message } from "./MessageBubble";
+import { MessageBubble, TypingIndicator, type Message } from "./MessageBubble";
 
 async function sendChatRequest(messages: Message[]): Promise<string> {
   let res: Response;
@@ -96,13 +96,7 @@ export function ChatWindow() {
         {messages.map((msg, i) => (
           <MessageBubble key={i} message={msg} />
         ))}
-        {isLoading && (
-          <div className="flex justify-start mb-3">
-            <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-2 text-sm text-gray-400 shadow-sm">
-              考え中...
-            </div>
-          </div>
-        )}
+        {isLoading && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
 
