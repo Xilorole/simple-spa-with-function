@@ -28,6 +28,9 @@ __pycache__/
 # Azure Functions
 api/.python_packages/
 
+# Bicep / ARM generated
+*.parameters.generated.json
+
 # azurite storage emulator
 __azurite_*.json
 __blobstorage__/*

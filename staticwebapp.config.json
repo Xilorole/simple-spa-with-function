@@ -25,5 +25,16 @@
   },
   "platform": {
     "apiRuntime": "python:3.11"
+  },
+  "auth": {
+    "identityProviders": {
+      "azureActiveDirectory": {
+        "registration": {
+          "openIdIssuer": "https://login.microsoftonline.com/b045feb7-f97d-4000-921d-6e52525b3e80/v2.0",
+          "clientIdSettingName": "AZURE_AD_CLIENT_ID",
+          "clientSecretSettingName": "AZURE_AD_CLIENT_SECRET"
+        }
+      }
+    }
   }
 }
