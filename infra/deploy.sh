@@ -66,18 +66,6 @@ if [[ "${ENABLE_CUSTOM_AUTH}" == "true" ]]; then
     ok "App registration created: ${AAD_CLIENT_ID}"
   fi
 
-  # Set redirect URI (needs the SWA hostname — use placeholder, update after deploy)
-  REDIRECT_URI="https://${SWA_NAME}.azurestaticapps.net/.auth/login/aad/callback"
-  info "Setting redirect URI: ${REDIRECT_URI}"
-  az ad app update --id "${AAD_CLIENT_ID}" \
-    --web-redirect-uris "${REDIRECT_URI}" \
-    --enable-id-token-issuance true \
-    -o none 2>/dev/null || \
-  az ad app update --id "${AAD_CLIENT_ID}" \
-    --web-redirect-uris "${REDIRECT_URI}" \
-    -o none
-  ok "Redirect URI configured."
-
   # Create a new client secret (valid for 1 year)
   info "Creating client secret..."
   AAD_CLIENT_SECRET=$(az ad app credential reset \
@@ -112,7 +100,25 @@ fi
 az deployment group create "${DEPLOY_PARAMS[@]}" -o table
 ok "Infrastructure deployed."
 
-# ─── 4. Get deployment token for CI/CD ────────────────────
+# ─── 4. Update Entra ID redirect URI with actual SWA hostname ──
+if [[ -n "${AAD_CLIENT_ID}" ]]; then
+  SWA_HOSTNAME=$(az staticwebapp show \
+    --name "${SWA_NAME}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --query "defaultHostname" -o tsv)
+  REDIRECT_URI="https://${SWA_HOSTNAME}/.auth/login/aad/callback"
+  info "Updating Entra ID redirect URI: ${REDIRECT_URI}"
+  az ad app update --id "${AAD_CLIENT_ID}" \
+    --web-redirect-uris "${REDIRECT_URI}" \
+    --enable-id-token-issuance true \
+    -o none 2>/dev/null || \
+  az ad app update --id "${AAD_CLIENT_ID}" \
+    --web-redirect-uris "${REDIRECT_URI}" \
+    -o none
+  ok "Redirect URI set to ${REDIRECT_URI}"
+fi
+
+# ─── 5. Get deployment token for CI/CD ────────────────────
 echo ""
 info "Retrieving SWA deployment token..."
 DEPLOY_TOKEN=$(az staticwebapp secrets list \
@@ -136,11 +142,13 @@ else
   warn "Could not retrieve deployment token. Get it manually from the Azure Portal."
 fi
 
-# ─── 5. Summary ───────────────────────────────────────────
-SWA_HOSTNAME=$(az staticwebapp show \
-  --name "${SWA_NAME}" \
-  --resource-group "${RESOURCE_GROUP}" \
-  --query "defaultHostname" -o tsv 2>/dev/null || echo "<pending>")
+# ─── 6. Summary ───────────────────────────────────────────
+if [[ -z "${SWA_HOSTNAME:-}" ]]; then
+  SWA_HOSTNAME=$(az staticwebapp show \
+    --name "${SWA_NAME}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --query "defaultHostname" -o tsv 2>/dev/null || echo "<pending>")
+fi
 
 echo ""
 echo "══════════════════════════════════════════════"
