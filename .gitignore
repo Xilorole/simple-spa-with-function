@@ -12,7 +12,7 @@ storybook-static/
 api/local.settings.json
 
 # IDE
-.vscode/
+
 *.swp
 *.swo
 
@@ -20,10 +20,15 @@ api/local.settings.json
 .DS_Store
 Thumbs.db
 
-# Python
+# PythonS
 __pycache__/
 *.pyc
 *.pyo
 
 # Azure Functions
 api/.python_packages/
+
+# azurite storage emulator
+__azurite_*.json
+__blobstorage__/*
+__queuestorage__/*
