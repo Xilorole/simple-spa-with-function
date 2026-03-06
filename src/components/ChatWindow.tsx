@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageBubble, TypingIndicator, type Message } from "./MessageBubble";
-import { SettingsPanel } from "./SettingsPanel";
-import { useAoaiSettings } from "../hooks/useAoaiSettings";
 import { useStreamingChat } from "../hooks/useStreamingChat";
 import { usePollingChat } from "../hooks/usePollingChat";
 import { buildChatBody, handleFetchError } from "../hooks/chatApi";
@@ -20,6 +18,10 @@ const MODE_DESCRIPTIONS: Record<StreamMode, string> = {
   sse: "Server-Sent Events（BYOF+Premium向け）",
   polling: "job_id + 差分ポーリング（Consumption互換）",
 };
+
+interface ChatWindowProps {
+  settings: AoaiSettings;
+}
 
 // ── Normal (non-streaming) chat logic ──
 
@@ -40,9 +42,7 @@ function useNormalChat(settings?: AoaiSettings) {
           headers: { "Content-Type": "application/json" },
           body: buildChatBody(newMessages, settings),
         });
-
         if (!res.ok) await handleFetchError(res);
-
         const data = await res.json();
         setMessages((prev) => [
           ...prev,
@@ -65,7 +65,7 @@ function useNormalChat(settings?: AoaiSettings) {
   return { messages, streamingContent: "", isLoading, sendMessage };
 }
 
-// ── StreamingBubble: shows partial content with blinking cursor ──
+// ── StreamingBubble ──
 
 function StreamingBubble({ content }: { content: string }) {
   return (
@@ -80,16 +80,11 @@ function StreamingBubble({ content }: { content: string }) {
 
 // ── Main component ──
 
-export function ChatWindow() {
+export function ChatWindow({ settings }: ChatWindowProps) {
   const [mode, setMode] = useState<StreamMode>("polling");
   const [input, setInput] = useState("");
-  const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { settings, updateSettings, isConfigured } = useAoaiSettings();
-
-  // All three hooks are always called (rules of hooks).
-  // Only the active one's sendMessage gets invoked.
   const normalChat = useNormalChat(settings);
   const sseChat = useStreamingChat(settings);
   const pollingChat = usePollingChat(settings);
@@ -117,76 +112,35 @@ export function ChatWindow() {
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-      {/* Header */}
+      {/* Header with mode selector */}
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold text-gray-800">💬 Chat</h1>
-          <div className="flex items-center gap-2">
-            {/* Mode selector */}
-            <div className="flex gap-1">
-              {(Object.keys(MODE_LABELS) as StreamMode[]).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  title={MODE_DESCRIPTIONS[m]}
-                  className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                    mode === m
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-200 text-gray-600 hover:bg-gray-300"
-                  }`}
-                >
-                  {MODE_LABELS[m]}
-                </button>
-              ))}
-            </div>
-            {/* Settings button */}
-            <button
-              onClick={() => setShowSettings(true)}
-              title="Azure OpenAI 設定"
-              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
-                isConfigured
-                  ? "bg-green-100 text-green-700 hover:bg-green-200"
-                  : "bg-gray-200 text-gray-500 hover:bg-gray-300"
-              }`}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                className="w-4 h-4"
+          <div className="flex gap-1">
+            {(Object.keys(MODE_LABELS) as StreamMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                title={MODE_DESCRIPTIONS[m]}
+                className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                  mode === m
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-200 text-gray-600 hover:bg-gray-300"
+                }`}
               >
-                <path
-                  fillRule="evenodd"
-                  d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
+                {MODE_LABELS[m]}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="flex items-center gap-2 mt-1">
-          <p className="text-xs text-gray-400">{MODE_DESCRIPTIONS[mode]}</p>
-          {isConfigured && (
-            <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-              クライアント設定
-            </span>
-          )}
-        </div>
+        <p className="text-xs text-gray-400 mt-1">{MODE_DESCRIPTIONS[mode]}</p>
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 && !streamingContent && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm gap-2">
-            <span>メッセージを入力してください</span>
-            {!isConfigured && (
-              <button
-                onClick={() => setShowSettings(true)}
-                className="text-xs text-blue-500 hover:text-blue-600 underline"
-              >
-                まず Azure OpenAI の接続設定をする
-              </button>
-            )}
+          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+            メッセージを入力してください
           </div>
         )}
         {messages.map((msg, i) => (
@@ -219,15 +173,6 @@ export function ChatWindow() {
           送信
         </button>
       </form>
-
-      {/* Settings modal */}
-      {showSettings && (
-        <SettingsPanel
-          settings={settings}
-          onUpdate={updateSettings}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
     </div>
   );
 }

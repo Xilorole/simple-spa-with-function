@@ -372,3 +372,169 @@ def chat_poll(req: func.HttpRequest) -> func.HttpResponse:
         status_code=200,
         mimetype="application/json",
     )
+
+
+# ──────────────────────────────────────────────
+# 4. Structured output review
+#    POST /api/review       → ReviewResult JSON (non-streaming)
+#    POST /api/review/start → { job_id }  (polling, stream + structured output)
+#    GET  /api/chat/poll    → reuse existing poll endpoint
+# ──────────────────────────────────────────────
+
+from review_schema import ReviewResult
+
+_REVIEW_SYSTEM_PROMPT = """\
+あなたは目標設定のレビュアーです。
+ユーザーが記入した目標設定シートの内容をレビューし、
+改善すべき点があれば具体的な書き替え提案を含めてフィードバックしてください。
+必ず指定された JSON スキーマに従って回答してください。
+"""
+
+
+def _parse_review_request(
+    req: func.HttpRequest,
+) -> tuple[dict, AoaiOverride | None]:
+    """Parse review form payload and return (form_data, override)."""
+    try:
+        body = req.get_json()
+    except ValueError:
+        raise ValueError("リクエストのJSON形式が不正です")
+
+    form_data = body.get("form_data")
+    if not form_data or not isinstance(form_data, dict):
+        raise ValueError("form_data フィールドは必須です")
+
+    override: AoaiOverride | None = None
+    raw = body.get("aoai_settings")
+    if raw and isinstance(raw, dict):
+        override = AoaiOverride(
+            endpoint=raw.get("endpoint", ""),
+            api_key=raw.get("apiKey", ""),
+            deployment=raw.get("deployment", ""),
+            api_version=raw.get("apiVersion", ""),
+        )
+    return form_data, override
+
+
+def _build_review_messages(form_data: dict) -> list[dict]:
+    """Build messages array for the review prompt."""
+    user_content = "\n".join(
+        f"【{k}】\n{v}" for k, v in form_data.items() if v
+    )
+    return [
+        {"role": "system", "content": _REVIEW_SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+
+@app.route(route="review", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def review(req: func.HttpRequest) -> func.HttpResponse:
+    """Non-streaming structured output review endpoint."""
+    try:
+        form_data, override = _parse_review_request(req)
+    except ValueError as e:
+        return _error_response(str(e), 400)
+
+    try:
+        client, deployment = _get_openai_client(override)
+        messages = _build_review_messages(form_data)
+
+        response = client.beta.chat.completions.parse(
+            model=deployment,
+            messages=messages,
+            max_completion_tokens=2048,
+            response_format=ReviewResult,
+        )
+
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
+            return _error_response("構造化出力のパースに失敗しました", 500)
+
+        return func.HttpResponse(
+            parsed.model_dump_json(indent=2),
+            status_code=200,
+            mimetype="application/json",
+        )
+    except ValueError as e:
+        return _error_response(str(e), 500)
+    except Exception as e:
+        logging.error(f"Review error: {type(e).__name__}: {e}")
+        return _error_response(f"レビューエラー: {type(e).__name__}: {e}", 500)
+
+
+def _run_review_streaming_job(
+    job: StreamingJob,
+    form_data: dict,
+    override: AoaiOverride | None = None,
+) -> None:
+    """Background thread: structured output + streaming for review."""
+    try:
+        client, deployment = _get_openai_client(override)
+        messages = _build_review_messages(form_data)
+
+        stream = client.chat.completions.create(
+            model=deployment,
+            messages=messages,
+            max_completion_tokens=2048,
+            stream=True,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "ReviewResult",
+                    "strict": True,
+                    "schema": ReviewResult.model_json_schema(),
+                },
+            },
+        )
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                with job.lock:
+                    job.chunks.append(content)
+
+        with job.lock:
+            job.status = JobStatus.DONE
+
+    except Exception as e:
+        logging.error(f"Review job {job.job_id} error: {type(e).__name__}: {e}")
+        with job.lock:
+            job.status = JobStatus.ERROR
+            job.error = f"{type(e).__name__}: {e}"
+
+
+@app.route(
+    route="review/start", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS
+)
+def review_start(req: func.HttpRequest) -> func.HttpResponse:
+    """Start a structured-output review job (polling-based)."""
+    _cleanup_old_jobs()
+
+    try:
+        form_data, override = _parse_review_request(req)
+    except ValueError as e:
+        return _error_response(str(e), 400)
+
+    try:
+        _get_openai_client(override)
+    except ValueError as e:
+        return _error_response(str(e), 500)
+
+    job_id = str(uuid.uuid4())
+    job = StreamingJob(job_id=job_id)
+
+    with _store_lock:
+        _job_store[job_id] = job
+
+    thread = threading.Thread(
+        target=_run_review_streaming_job,
+        args=(job, form_data, override),
+        daemon=True,
+    )
+    thread.start()
+
+    return func.HttpResponse(
+        json.dumps({"job_id": job_id}),
+        status_code=202,
+        mimetype="application/json",
+    )
+
