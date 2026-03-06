@@ -1,5 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageBubble, TypingIndicator, type Message } from "./MessageBubble";
+import {
+  MessageBubble,
+  StructuredBubble,
+  TypingIndicator,
+  type Message,
+} from "./MessageBubble";
 import { SettingsPanel } from "./SettingsPanel";
 import { useAoaiSettings } from "../hooks/useAoaiSettings";
 import { useStreamingChat } from "../hooks/useStreamingChat";
@@ -54,10 +59,16 @@ function useNormalChat(settings?: AoaiSettings) {
     [messages, settings]
   );
 
-  return { messages, streamingContent: "", isLoading, sendMessage };
+  return {
+    messages,
+    streamingContent: "",
+    partialStructured: null,
+    isLoading,
+    sendMessage,
+  };
 }
 
-// ── Streaming cursor ──
+// ── Plain text streaming cursor ──
 
 function StreamingBubble({ content }: { content: string }) {
   return (
@@ -86,9 +97,14 @@ export function ChatWindow() {
   const pollingChat = usePollingChat(settings, structured);
 
   const activeChat =
-    mode === "sse" ? sseChat : mode === "polling" ? pollingChat : normalChat;
+    mode === "sse"
+      ? { ...sseChat, partialStructured: null }
+      : mode === "polling"
+        ? pollingChat
+        : normalChat;
 
-  const { messages, streamingContent, isLoading, sendMessage } = activeChat;
+  const { messages, streamingContent, partialStructured, isLoading, sendMessage } =
+    activeChat;
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -96,7 +112,7 @@ export function ChatWindow() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, streamingContent, scrollToBottom]);
+  }, [messages, streamingContent, partialStructured, scrollToBottom]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,13 +122,30 @@ export function ChatWindow() {
     await sendMessage(trimmed);
   };
 
+  // Decide what to show during streaming
+  const renderStreaming = () => {
+    if (!isLoading && !streamingContent) return null;
+
+    // Structured mode: show partial structured view if available
+    if (structured && partialStructured) {
+      return <StructuredBubble data={partialStructured} streaming />;
+    }
+
+    // Plain streaming text
+    if (streamingContent) {
+      return <StreamingBubble content={streamingContent} />;
+    }
+
+    // Waiting for first chunk
+    return <TypingIndicator />;
+  };
+
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
       {/* Header */}
       <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* Mode pills */}
             <div className="flex gap-1">
               {(Object.keys(MODE_LABELS) as StreamMode[]).map((m) => (
                 <button
@@ -129,7 +162,6 @@ export function ChatWindow() {
               ))}
             </div>
 
-            {/* Structured toggle (polling only) */}
             {mode === "polling" && (
               <label className="flex items-center gap-1.5 cursor-pointer select-none">
                 <input
@@ -143,7 +175,6 @@ export function ChatWindow() {
             )}
           </div>
 
-          {/* Settings */}
           <button
             onClick={() => setShowSettings(true)}
             className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
@@ -152,17 +183,8 @@ export function ChatWindow() {
                 : "bg-gray-200 text-gray-500 hover:bg-gray-300"
             }`}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              className="w-3.5 h-3.5"
-            >
-              <path
-                fillRule="evenodd"
-                d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z"
-                clipRule="evenodd"
-              />
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path fillRule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
             </svg>
           </button>
         </div>
@@ -178,8 +200,7 @@ export function ChatWindow() {
         {messages.map((msg, i) => (
           <MessageBubble key={i} message={msg} />
         ))}
-        {streamingContent && <StreamingBubble content={streamingContent} />}
-        {isLoading && !streamingContent && <TypingIndicator />}
+        {renderStreaming()}
         <div ref={messagesEndRef} />
       </div>
 

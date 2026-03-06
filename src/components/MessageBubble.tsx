@@ -103,19 +103,38 @@ function MarkdownContent({
   );
 }
 
-// ── Structured bubble ──
+// ── Structured bubble (complete + partial) ──
 
-function StructuredBubble({ data }: { data: StructuredChat }) {
+export function StructuredBubble({
+  data,
+  streaming = false,
+}: {
+  data: Partial<StructuredChat>;
+  streaming?: boolean;
+}) {
+  const cursor = streaming ? (
+    <span className="inline-block w-2 h-4 ml-0.5 bg-blue-500 animate-pulse rounded-sm align-middle" />
+  ) : null;
+
+  const hasSummary = Boolean(data.summary);
+  const hasEmotions = data.emotions && data.emotions.length > 0;
+  const hasContent = Boolean(data.content);
+
   return (
     <div className="flex justify-start mb-3 animate-slide-in-left">
       <div className="max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-white text-gray-800 border border-gray-200 rounded-bl-md shadow-sm space-y-2">
         {/* Summary */}
-        <p className="text-xs text-gray-500">{data.summary}</p>
+        {hasSummary && (
+          <p className="text-xs text-gray-500">
+            {data.summary}
+            {streaming && !hasEmotions && !hasContent && cursor}
+          </p>
+        )}
 
         {/* Emotions */}
-        {data.emotions.length > 0 && (
+        {hasEmotions && (
           <div className="flex flex-wrap gap-1">
-            {data.emotions.map((e, i) => (
+            {data.emotions!.map((e, i) => (
               <span
                 key={i}
                 className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded-full"
@@ -123,13 +142,24 @@ function StructuredBubble({ data }: { data: StructuredChat }) {
                 {e}
               </span>
             ))}
+            {streaming && !hasContent && cursor}
           </div>
         )}
 
         {/* Content (markdown) */}
-        <div className="bubble-markdown">
-          <MarkdownContent text={data.content} isUser={false} />
-        </div>
+        {hasContent && (
+          <div className="bubble-markdown">
+            <MarkdownContent text={data.content!} isUser={false} />
+            {streaming && cursor}
+          </div>
+        )}
+
+        {/* Before any field is parsed */}
+        {!hasSummary && !hasEmotions && !hasContent && streaming && (
+          <span className="text-xs text-gray-400">
+            生成中...{cursor}
+          </span>
+        )}
       </div>
     </div>
   );

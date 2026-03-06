@@ -1,8 +1,9 @@
 import { useState, useCallback, useRef } from "react";
-import type { Message } from "../components/MessageBubble";
+import type { Message, StructuredChat } from "../components/MessageBubble";
 import { tryParseStructured } from "../components/MessageBubble";
 import type { AoaiSettings } from "./useAoaiSettings";
 import { buildChatBody, handleFetchError } from "./chatApi";
+import { parsePartialStructured } from "./partialJson";
 
 interface PollResponse {
   content: string;
@@ -38,14 +39,6 @@ function nextInterval(
   return Math.min(Math.round(current * config.decelerate), config.max);
 }
 
-/**
- * Polling-based pseudo-streaming hook with adaptive interval.
- *
- * When `structured` is true:
- * - Sends `structured: true` to backend (triggers json_schema response_format)
- * - During polling: shows raw JSON as streaming text
- * - On done: parses JSON into StructuredChat and stores in message.structured
- */
 export function usePollingChat(
   settings?: AoaiSettings,
   structured: boolean = false,
@@ -55,6 +48,8 @@ export function usePollingChat(
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
+  const [partialStructured, setPartialStructured] =
+    useState<Partial<StructuredChat> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const cancelledRef = useRef(false);
 
@@ -64,6 +59,7 @@ export function usePollingChat(
 
       setMessages((prev) => [...prev, userMessage]);
       setStreamingContent("");
+      setPartialStructured(null);
       setIsLoading(true);
       cancelledRef.current = false;
 
@@ -98,6 +94,12 @@ export function usePollingChat(
           if (hasContent) {
             accumulated += poll.content;
             setStreamingContent(accumulated);
+
+            // Partial parse for progressive structured rendering
+            if (structured) {
+              const partial = parsePartialStructured(accumulated);
+              if (partial) setPartialStructured(partial);
+            }
           }
           cursor = poll.cursor;
           interval = nextInterval(interval, hasContent, config);
@@ -108,19 +110,15 @@ export function usePollingChat(
           if (poll.status === "done") break;
         }
 
-        // Finalize: try structured parse if enabled
         if (!cancelledRef.current) {
-          const parsed = structured
-            ? tryParseStructured(accumulated)
-            : null;
-
+          const parsed = structured ? tryParseStructured(accumulated) : null;
           const assistantMsg: Message = parsed
             ? { role: "assistant", content: accumulated, structured: parsed }
             : { role: "assistant", content: accumulated };
-
           setMessages((prev) => [...prev, assistantMsg]);
         }
         setStreamingContent("");
+        setPartialStructured(null);
       } catch (err) {
         if (cancelledRef.current) return;
         const errorMessage =
@@ -130,6 +128,7 @@ export function usePollingChat(
           { role: "assistant", content: `⚠️ ${errorMessage}` },
         ]);
         setStreamingContent("");
+        setPartialStructured(null);
       } finally {
         setIsLoading(false);
       }
@@ -142,7 +141,14 @@ export function usePollingChat(
     cancelledRef.current = true;
   }, []);
 
-  return { messages, streamingContent, isLoading, sendMessage, abort };
+  return {
+    messages,
+    streamingContent,
+    partialStructured,
+    isLoading,
+    sendMessage,
+    abort,
+  };
 }
 
 function sleep(ms: number): Promise<void> {
