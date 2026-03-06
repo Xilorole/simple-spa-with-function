@@ -27,12 +27,27 @@ class StructuredChatResponse(BaseModel):
     content: str = Field(description="実際の応答本文（Markdown対応）")
 
 
+def _build_strict_schema(model: type[BaseModel]) -> dict:
+    """Generate a JSON schema compatible with OpenAI strict mode.
+
+    OpenAI requires `additionalProperties: false` on every object,
+    which Pydantic doesn't emit by default.
+    """
+    schema = model.model_json_schema()
+    schema["additionalProperties"] = False
+    # Also patch any nested $defs if present
+    for defn in schema.get("$defs", {}).values():
+        if defn.get("type") == "object":
+            defn["additionalProperties"] = False
+    return schema
+
+
 _STRUCTURED_JSON_SCHEMA = {
     "type": "json_schema",
     "json_schema": {
         "name": "StructuredChatResponse",
         "strict": True,
-        "schema": StructuredChatResponse.model_json_schema(),
+        "schema": _build_strict_schema(StructuredChatResponse),
     },
 }
 
