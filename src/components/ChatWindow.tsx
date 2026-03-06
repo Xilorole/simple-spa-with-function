@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageBubble, TypingIndicator, type Message } from "./MessageBubble";
+import { SettingsPanel } from "./SettingsPanel";
+import { useAoaiSettings } from "../hooks/useAoaiSettings";
 import { useStreamingChat } from "../hooks/useStreamingChat";
 import { usePollingChat } from "../hooks/usePollingChat";
 import { buildChatBody, handleFetchError } from "../hooks/chatApi";
@@ -9,21 +11,11 @@ type StreamMode = "normal" | "sse" | "polling";
 
 const MODE_LABELS: Record<StreamMode, string> = {
   normal: "通常",
-  sse: "SSE Stream",
-  polling: "Polling Stream",
+  sse: "SSE",
+  polling: "Polling",
 };
 
-const MODE_DESCRIPTIONS: Record<StreamMode, string> = {
-  normal: "全文が返るまで待機",
-  sse: "Server-Sent Events（BYOF+Premium向け）",
-  polling: "job_id + 差分ポーリング（Consumption互換）",
-};
-
-interface ChatWindowProps {
-  settings: AoaiSettings;
-}
-
-// ── Normal (non-streaming) chat logic ──
+// ── Normal (non-streaming) chat ──
 
 function useNormalChat(settings?: AoaiSettings) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -65,29 +57,33 @@ function useNormalChat(settings?: AoaiSettings) {
   return { messages, streamingContent: "", isLoading, sendMessage };
 }
 
-// ── StreamingBubble ──
+// ── Streaming cursor ──
 
 function StreamingBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-start mb-3 animate-slide-in-left">
       <div className="max-w-[75%] rounded-2xl px-4 py-2 text-sm leading-relaxed bg-white text-gray-800 border border-gray-200 rounded-bl-md shadow-sm">
-        <span>{content}</span>
+        <span className="whitespace-pre-wrap">{content}</span>
         <span className="inline-block w-2 h-4 ml-0.5 bg-blue-500 animate-pulse rounded-sm" />
       </div>
     </div>
   );
 }
 
-// ── Main component ──
+// ── Main ──
 
-export function ChatWindow({ settings }: ChatWindowProps) {
+export function ChatWindow() {
   const [mode, setMode] = useState<StreamMode>("polling");
+  const [structured, setStructured] = useState(false);
   const [input, setInput] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const { settings, updateSettings, isConfigured } = useAoaiSettings();
 
   const normalChat = useNormalChat(settings);
   const sseChat = useStreamingChat(settings);
-  const pollingChat = usePollingChat(settings);
+  const pollingChat = usePollingChat(settings, structured);
 
   const activeChat =
     mode === "sse" ? sseChat : mode === "polling" ? pollingChat : normalChat;
@@ -112,28 +108,64 @@ export function ChatWindow({ settings }: ChatWindowProps) {
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-      {/* Header with mode selector */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      {/* Header */}
+      <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-gray-800">💬 Chat</h1>
-          <div className="flex gap-1">
-            {(Object.keys(MODE_LABELS) as StreamMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                title={MODE_DESCRIPTIONS[m]}
-                className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                  mode === m
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-200 text-gray-600 hover:bg-gray-300"
-                }`}
-              >
-                {MODE_LABELS[m]}
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            {/* Mode pills */}
+            <div className="flex gap-1">
+              {(Object.keys(MODE_LABELS) as StreamMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                    mode === m
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-200 text-gray-600 hover:bg-gray-300"
+                  }`}
+                >
+                  {MODE_LABELS[m]}
+                </button>
+              ))}
+            </div>
+
+            {/* Structured toggle (polling only) */}
+            {mode === "polling" && (
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={structured}
+                  onChange={(e) => setStructured(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-xs text-gray-600">Structured</span>
+              </label>
+            )}
           </div>
+
+          {/* Settings */}
+          <button
+            onClick={() => setShowSettings(true)}
+            className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
+              isConfigured
+                ? "bg-green-100 text-green-700 hover:bg-green-200"
+                : "bg-gray-200 text-gray-500 hover:bg-gray-300"
+            }`}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="w-3.5 h-3.5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
         </div>
-        <p className="text-xs text-gray-400 mt-1">{MODE_DESCRIPTIONS[mode]}</p>
       </div>
 
       {/* Messages */}
@@ -173,6 +205,14 @@ export function ChatWindow({ settings }: ChatWindowProps) {
           送信
         </button>
       </form>
+
+      {showSettings && (
+        <SettingsPanel
+          settings={settings}
+          onUpdate={updateSettings}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }

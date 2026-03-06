@@ -2,21 +2,24 @@ import type { Message } from "../components/MessageBubble";
 import type { AoaiSettings } from "./useAoaiSettings";
 
 /**
- * Build the JSON body for chat API requests,
- * including optional client-side AOAI settings.
+ * Build the JSON body for chat API requests.
  */
 export function buildChatBody(
   messages: Message[],
-  settings?: AoaiSettings
+  settings?: AoaiSettings,
+  structured?: boolean
 ): string {
   const body: Record<string, unknown> = { messages };
-  if (settings && settings.endpoint && settings.apiKey) {
+  if (settings?.endpoint && settings?.apiKey) {
     body.aoai_settings = {
       endpoint: settings.endpoint,
       apiKey: settings.apiKey,
       deployment: settings.deployment || undefined,
       apiVersion: settings.apiVersion || undefined,
     };
+  }
+  if (structured) {
+    body.structured = true;
   }
   return JSON.stringify(body);
 }
